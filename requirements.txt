@@ -1,0 +1,7 @@
+ollama
+pyaudio
+numpy
+torch
+faster_whisper
+silero_tts
+wave
