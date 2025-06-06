@@ -1,16 +1,26 @@
 import argparse
-from queue import Queue
 import threading
+import logging
 
 from . import ShutdownQueue
 from .stt import handle_audio_stream, handle_snippet_transcription
 from .agent import handle_llm_queries
 from .tts import handle_llm_response
 
+from .logger_config import setup_logger
+logger = setup_logger(__name__)
 
+DEFAULT_PROMPT="""
+You are helpful. You like cheeses.
+
+Your output should always be a single sentence unless you are specifically asked to talk in depth about something.
+
+Avoid markdown, your output will be sent through text to speech
+"""
 
 class Noonian:
-    def __init__(self):
+    def __init__(self, args):
+        self.args = args
         self.vad_snippet_queue = ShutdownQueue()
         self.text_snippet_queue = ShutdownQueue()
         self.response_queue = ShutdownQueue()
@@ -21,16 +31,16 @@ class Noonian:
 
     def start(self):
         self.stop_event.clear()
-        self.vad_thread = threading.Thread(target=handle_audio_stream, args=(self.stop_event, self.vad_snippet_queue))
+        self.vad_thread = threading.Thread(target=handle_audio_stream, args=(self.args, self.stop_event, self.vad_snippet_queue))
         self.vad_thread.start()
 
-        self.transcriber_thread = threading.Thread(target=handle_snippet_transcription, args=(self.stop_event, self.vad_snippet_queue, self.text_snippet_queue))
+        self.transcriber_thread = threading.Thread(target=handle_snippet_transcription, args=(self.args, self.stop_event, self.vad_snippet_queue, self.text_snippet_queue))
         self.transcriber_thread.start()
 
-        self.llm_query_thread = threading.Thread(target=handle_llm_queries, args=(self.stop_event, self.text_snippet_queue, self.response_queue))
+        self.llm_query_thread = threading.Thread(target=handle_llm_queries, args=(self.args, self.stop_event, self.text_snippet_queue, self.response_queue))
         self.llm_query_thread.start()
 
-        self.tts_thread = threading.Thread(target=handle_llm_response, args=(self.stop_event, self.response_queue))
+        self.tts_thread = threading.Thread(target=handle_llm_response, args=(self.args, self.stop_event, self.response_queue))
         self.tts_thread.start()
 
     def stop(self):
@@ -44,10 +54,28 @@ class Noonian:
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description='STT-LLM-TTS')
-    args = vars(parser.parse_args())
+    parser = argparse.ArgumentParser(description='Noonian is an application running a STT-LLM-TTS loop')
+    parser.add_argument("--vad-on-threshold", default=0.7, type=float, help="")
+    parser.add_argument("--vad-off-threshold", default=0.01, type=float, help="")
+    parser.add_argument("--vad-silence-chunks", default=10, type=int, help="")
+    parser.add_argument("--vad-repo", default="snakers4/silero-vad", help="")
+    parser.add_argument("--vad-model", default="silero_vad", help="")
 
-    n = Noonian()
+    parser.add_argument("--whisper-model", default="large-v3-turbo", help="Whisper model")
+    parser.add_argument("--whisper-device", default="cuda", help="Whisper model")
+
+    parser.add_argument("--ollama-model", default="qwen3:4b", help="Ollama model")
+    parser.add_argument("--ollama-system-prompt", default=DEFAULT_PROMPT, help="System prompt for Ollama")
+
+    parser.add_argument("--tts-url", default="http://localhost:5002/api/tts", help="TTS server URL")
+    parser.add_argument("--tts-model", default="tts_models/en/vctk/vits", help="Model (v3_en, ....)")
+    parser.add_argument("--tts-speaker", default=None, help="Speaker (....)")
+    parser.add_argument("--tts-language", default=None, help="TTS Language")
+    parser.add_argument("--tts-speaker-wav", default=None, help="TTS Speaker")
+
+    args = parser.parse_args()
+
+    n = Noonian(args)
     n.start()
     input("Press Enter to continue...")
     n.stop()
