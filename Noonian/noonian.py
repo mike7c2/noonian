@@ -64,16 +64,18 @@ if __name__ == "__main__":
     parser.add_argument("--whisper-model", default="large-v3-turbo", help="Whisper model")
     parser.add_argument("--whisper-device", default="cuda", help="Whisper model")
 
-    parser.add_argument("--ollama-model", default="qwen3:4b", help="Ollama model")
+    parser.add_argument("--ollama-model", default="qwen3:8b", help="Ollama model")
     parser.add_argument("--ollama-system-prompt", default=DEFAULT_PROMPT, help="System prompt for Ollama")
 
-    parser.add_argument("--tts-url", default="http://localhost:5002/api/tts", help="TTS server URL")
-    parser.add_argument("--tts-model", default="tts_models/en/vctk/vits", help="Model (v3_en, ....)")
+    parser.add_argument("--tts-model", default="tts_models/multilingual/multi-dataset/xtts_v2", help="Model (v3_en, ....)")
     parser.add_argument("--tts-speaker", default=None, help="Speaker (....)")
-    parser.add_argument("--tts-language", default=None, help="TTS Language")
+    parser.add_argument("--tts-language", default="en", help="TTS Language")
     parser.add_argument("--tts-speaker-wav", default=None, help="TTS Speaker")
 
     args = parser.parse_args()
+
+    if args.tts_speaker is None and args.tts_speaker_wav is None:
+        print("Need at least one of --tts-speaker, --tts-speaker-wav")
 
     n = Noonian(args)
     n.start()

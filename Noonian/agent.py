@@ -77,8 +77,14 @@ def handle_llm_queries(args, stop_event, text_snippet_queue, llm_response_queue)
                         tool_called = True
                     if len(chunk.message.content) > 0:
                         output_buf += chunk.message.content
-                        llm_response_queue.put(chunk.message.content)
-
+                        llm_response_queue.put({
+                            "content": chunk.message.content,
+                            "end": False
+                        })
+                llm_response_queue.put({
+                    "content": None,
+                    "end": True
+                })
                 if len(output_buf) > 0:
                     new_message = {
                         'role': 'assistant',

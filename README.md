@@ -1,25 +1,31 @@
 # Installation
 
+TTS requires python <= 3.12, use `pyenv` to create a virtual environment with a specific python version:
 ```
+# Setup virtual environment with pyenv
+pyenv install 3.11.12
+pyenv virtualenv 3.11 noonian_venv
+pyenv activate noonian_venv
+
+# Install noonian requirements
 pip install -r requirements.txt
 ```
 
 Note that extra steps may be required to make sure `torch` is cuda enabled.
 
-## TTS
+## Ctranslate
 
-Text to speech relies on a Coqui TTS server which can be run with docker: https://docs.coqui.ai/en/latest/docker_images.html
+If you see an error about ctranslate, look here:
+https://github.com/m-bain/whisperX/issues/1038
 
-On windows, docker desktop for windows should support GPU acceleration immediately
-
-On linux, make sure that the nvidia container toolkit is installed: https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html
-
-Use the following command to launch a server with a model.etc:
+We force version 4.4.0 of ctranslate so find the library and use patchelf to fix it:
 ```
-docker run --rm -it -p 5002:5002 --gpus all --entrypoint /bin/bash ghcr.io/coqui-ai/tts -c "python3 TTS/server/server.py --model_name tts_models/en/vctk/vits --use_cuda true"
-```
+# Get path for the library
+find $HOME -iname 'libctranslate2-d3638643.so.4.4.0'
 
-WIP
+# Patch it!
+patchelf --clear-execstack PATH_TO/libctranslate2-d3638643.so.4.4.0
+```
 
 # Running
 ```

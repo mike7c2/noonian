@@ -3,6 +3,7 @@ import threading
 import numpy as np
 import torch
 import logging
+import html
 
 from faster_whisper import WhisperModel
 from . import QueueShutdownException
