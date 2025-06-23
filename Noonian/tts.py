@@ -18,7 +18,7 @@ def clean_string(text):
 def audio_streamer(args, audio, wf):
     logger.info(f'Starting playback')
     stream = audio.open(
-        format=pyaudio.paFloat32,
+        format=pyaudio.paInt16,
         channels=1,
         rate=24000,
         output=True
@@ -36,8 +36,9 @@ def handle_llm_response(args, stop_event, llm_response_queue):
         while not stop_event.is_set():
             # Add any new content to the input buffer
             response = llm_response_queue.get()
+
             if response["content"] is not None:
-                input_buffer += response["content"]
+                input_buffer += response["content"].split("</think>")[-1]
             flush = response["end"]
 
             # Determine if there is text ready for TTS
@@ -58,6 +59,8 @@ def handle_llm_response(args, stop_event, llm_response_queue):
                 try:
                     wf = tts_instance.tts(line, language=args.tts_language, speaker_wav=args.tts_speaker_wav)
                     wf = np.array(wf, dtype=np.float32)
+                    wf *= 32767
+                    wf = np.array(wf, dtype=np.int16)
 
                     # Don't play more audio if some is already playing, wait for the last snippet to complete
                     if player_thread is not None:

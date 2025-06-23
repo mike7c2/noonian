@@ -80,8 +80,13 @@ def handle_snippet_transcription(args, stop_event, vad_snippet_queue, text_snipp
             for i in range(len(snippet)):
                 assembled_snippet[i*512:(i+1)*512] = snippet[i]
             logger.info("Processing clip")
-            segments, info = model.transcribe(assembled_snippet, beam_size=5, language="en")
+            segments, info = model.transcribe(
+                assembled_snippet,
+                beam_size=5,
+                language="en"
+            )
             segments = [s for s in segments] # Unpack generator
+            print(segments)
             new_text = "".join([s.text for s in segments])
             logger.info(f"Finished processing clip: {new_text}")
             text_snippet_queue.put((segments, info))
