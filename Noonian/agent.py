@@ -1,3 +1,6 @@
+import json
+import queue
+import threading
 from typing import List, Any, Dict
 from typing_extensions import TypedDict
 from langgraph.graph import StateGraph, START, END
@@ -6,10 +9,12 @@ from langgraph.prebuilt import ToolNode
 from langchain_core.messages import AIMessage, SystemMessage, HumanMessage
 from langchain_mcp_adapters.client import MultiServerMCPClient
 
+import signal
 import asyncio
 import argparse
 import os
 import logging
+import paho.mqtt.client as mqtt
 
 # Set up logger
 from .logger_config import setup_logger
@@ -140,7 +145,7 @@ class NoonianAgent:
         self.context = []
 
 # Runs a noonian agent taking from text_snippet_queue and putting to llm_response_queue
-def noonian_agent_runner(args, stop_flag, text_snippet_queue, llm_response_queue):
+def noonian_agent_runner(args, stop_flag, text_snippet_queue, mqtt_client):
     """
     Runs a NoonianAgent in a loop, reading from text_snippet_queue and writing responses to llm_response_queue.
     Exits cleanly when stop_flag is set.
@@ -177,14 +182,42 @@ def noonian_agent_runner(args, stop_flag, text_snippet_queue, llm_response_queue
             # Run the async handle_llm_query in this thread's event loop
             result = loop.run_until_complete(agent.handle_llm_query(user_input))
             last_message = result["messages"][-1]
-            llm_response_queue.put({
-                "content": last_message.content,
-                "end": True
-            })
+            mqtt_client.publish(
+                args.topic,
+                json.dumps({
+                    "content": last_message.content,
+                    "end": True,
+                })
+            )
     except Exception as e:
         logger.error(f"noonian_agent_runner encountered an error: {e}")
     finally:
         loop.close()
+
+
+def mqtt_listener(args, stop_event, text_snippet_queue):
+    """Listen on MQTT for text messages and push into TTS queue."""
+
+    def on_message(client, userdata, msg):
+        logger.info(f"Got message: {msg}")
+        try:
+            text = msg.payload.decode("utf-8").strip()
+            if text:
+                text_snippet_queue.put(text)
+        except Exception as e:
+            logger.error(f"Failed to handle MQTT message: {e}")
+
+    mqtt_client = mqtt.Client()
+    mqtt_client.username_pw_set(username="backbone",password="backbone")
+    mqtt_client.on_message = on_message
+    mqtt_client.connect(args.broker, args.port, 60)
+    mqtt_client.subscribe(args.topic)
+    mqtt_client.loop_start()
+
+    while not stop_event.is_set():
+        signal.pause()
+    mqtt_client.loop_stop()
+
 
 async def main_async():
     parser = argparse.ArgumentParser(description="Noonian Agent - LLM assistant with tools")
@@ -194,32 +227,51 @@ async def main_async():
     parser.add_argument("--ollama-system-prompt", dest="ollama_system_prompt", type=str, 
                        default="You are a helpful assistant.",
                        help="System prompt for the Ollama model")
+
     # Tool configuration
     parser.add_argument("--tool-file", action="append", default=[],
                        help="Python file implementing an MCP tool")
     parser.add_argument("--tool-server", action="append", default=[],
                        help="URL of an MCP tool server")
+
     # Parse arguments
     args = parser.parse_args()
+
     # Set up logging based on verbosity
     if args.tool_file or args.tool_server:
         logger.info(f"Initializing with {len(args.tool_file)} file tools and {len(args.tool_server)} server tools")
-    agent = NoonianAgent(args)
-    await agent._init_graph()
-    print("NoonianAgent is ready. Type your prompt (Ctrl+C to exit):")
-    try:
-        loop = asyncio.get_running_loop()
-        while True:
-            user_input = await loop.run_in_executor(None, input, "> ")
-            if user_input.strip().lower() == "clear":
-                agent.clear_context()
-                print("Context cleared.")
-                continue
-            result = await agent.handle_llm_query(user_input)
-            last_message = result["messages"][-1]
-            print(last_message.content)
-    except KeyboardInterrupt:
-        print("\nExiting.")
+    
+    stop_event = threading.Event()
+    text_snippet_queue = queue.Queue()
+
+    # --- MQTT client ---
+    def on_message(client, userdata, msg):
+        logger.info(f"Got message: {msg}")
+        try:
+            text = msg.payload.decode("utf-8").strip()
+            if text:
+                text_snippet_queue.put(text)
+        except Exception as e:
+            logger.error(f"Failed to handle MQTT message: {e}")
+
+    mqtt_client = mqtt.Client()
+    mqtt_client.username_pw_set(username="backbone",password="backbone")
+    mqtt_client.on_message = on_message
+    mqtt_client.connect(args.broker, args.port, 60)
+    mqtt_client.subscribe(args.topic)
+    mqtt_client.loop_start()
+
+    # start Noonian agent worker
+    worker = threading.Thread(
+        target=noonian_agent_runner,
+        args=(args, stop_event, text_snippet_queue, mqtt_client),
+        daemon=True,
+    )
+    worker.start()
+
+    while not stop_event.is_set():
+       signal.pause()
+    mqtt_client.loop_stop()
 
 if __name__ == "__main__":
     logging.basicConfig(
